@@ -1,0 +1,186 @@
+# 1 "/home/prakaram/shared_home/projects/WCG-WebRTC-Tutorial-For-Beginners/webrtc_text_demo/client/js/rtc_connection.js"
+# 1 "/usr/bin//"
+# 1 "<built-in>"
+# 1 "<command-line>"
+# 31 "<command-line>"
+# 1 "/usr/include/stdc-predef.h" 1 3 4
+# 32 "<command-line>" 2
+# 1 "/home/prakaram/shared_home/projects/WCG-WebRTC-Tutorial-For-Beginners/webrtc_text_demo/client/js/rtc_connection.js"
+var g_active_connections={}
+function GetRTCIceCandidate(){
+    window.RTCIceCandidate = window.RTCIceCandidate || window.webkitRTCIceCandidate
+                || window.mozRTCIceCandidate || window.msRTCIceCandidate;
+
+    return window.RTCIceCandidate;
+}
+function GetUserMedia(){
+    navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia
+                    || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+    return navigator.getUserMedia;
+}
+function GetRTCPeerConnection(){
+    window.RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection
+                        || window.mozRTCPeerConnection || window.msRTCPeerConnection;
+    return window.RTCPeerConnection;
+}
+function GetRTCSessionDescription(){
+    window.RTCSessionDescription = window.RTCSessionDescription || window.webkitRTCSessionDescription
+                    || window.mozRTCSessionDescription || window.msRTCSessionDescription;
+    return window.RTCSessionDescription;
+}
+
+
+
+socket.on("connect", function(client){
+
+    console.log("connected!");
+
+
+    socket.on("candidate", function(_msg){
+        let msg=JSON.parse(_msg)
+        if(g_channel_id!=msg.channel_id){
+            return
+        }
+        console.log("candidate received");
+        let connection_id=msg.connection_id
+        g_active_connections[connection_id].set_icecandidate(_msg)
+
+    });
+
+
+    socket.on("sdp", function(_msg){
+        let msg=JSON.parse(_msg)
+        if(g_channel_id!=msg.channel_id){
+            return
+        }
+        console.log("sdp received");
+        let connection_id=msg.connection_id
+        g_active_connections[connection_id]= new Connection(connection_id,socket,g_channel_id,g_on_message_callback)
+        g_active_connections[connection_id].send_answer(msg)
+    });
+
+    socket.on("call_me",function(_msg){
+        let msg=JSON.parse(_msg)
+        console.log(msg)
+        if(g_channel_id!=msg.channel_id){
+            return
+        }
+        if(g_session_id==msg.requester){
+            return
+        }
+        console.log("call me received");
+        let connection_id=generate_connection_id()
+        g_active_connections[connection_id]= new Connection(connection_id,socket,g_channel_id,g_on_message_callback)
+        g_active_connections[connection_id].send_offer()
+    })
+
+
+    socket.on("answer", function(_msg){
+        let msg=JSON.parse(_msg)
+        if(g_channel_id!=msg.channel_id){
+            return
+        }
+        console.log("answer received");
+        let connection_id=msg.connection_id
+        g_active_connections[connection_id].receive_answer(msg)
+    });
+});
+
+var socket_send_msg_to=function(_msg_type,_connection_id,_channel_id,_data_type,_data_value){
+    let msg=JSON.stringify({_data_type:_data_value,'connection_id':_connection_id,'channel_id':_channel_id})
+    socket.emit(_msg_type, msg);
+}
+
+var socket_send_msg_brdcst=function(_msg_type,_data_type,_data_value){
+    let msg=JSON.stringify({_data_type:_data_value})
+    socket.emit(_msg_type,msg)
+}
+
+
+var join_network=function(){
+    let msg=JSON.stringify({"channel_id":g_channel_id,"requester":g_session_id})
+    socket.emit("call_me",msg)
+}
+
+class Connection{
+    constructor(_connection_id,_socket,_channel_id,_callback_on_message){
+        this.connection_id=_connection_id
+        this.socket=_socket
+        this.channel_id=_channel_id
+        this.connection=new window.RTCPeerConnection();
+        this.remoteDataChannel;
+        this.data_channel=this.create_data_channel(_callback_on_message)
+    }
+
+    send_offer(){
+        this.connection.createOffer().then(function(desc){
+            this.connection.setLocalDescription(new RTCSessionDescription(desc));
+            socket_send_msg_brdcst("sdp","sdp",desc)
+        });
+    }
+
+    send_answer(_msg){
+        let sessionDesc = new RTCSessionDescription(_msg.sdp);
+        this.connection.setRemoteDescription(sessionDesc);
+        this.connection.createAnswer().then(function(sdp){
+            this.connection.setLocalDescription(new RTCSessionDescription(sdp));
+            this.send_signal_message("answer","sdp",sdp)
+        });
+    }
+
+    receive_answer(_msg){
+        this.connection.setRemoteDescription(new RTCSessionDescription(_msg.sdp));
+    }
+
+    send_signal_message(_msg_type,_val,_data_type,_data_value){
+        socket_send_msg_to(_msg_type,this.connection_id,this.channel_id,_data_type,_data_value)
+    }
+
+    set_icecandidate(_msg){
+        this.connection.addIceCandidate(new RTCIceCandidate(_msg.candidate));
+    }
+
+
+    create_data_channel(_callback_on_message){
+
+        this.connection.ondatachannel = function(channel){
+            this.remoteDataChannel = channel.channel;
+        };
+        this.data_channel.onopen = function(){
+            console.log("Channel Opened");
+        };
+
+        this.data_channel.onclose = function(){
+            console.log("Channel Closed");
+        };
+
+        this.data_channel.onmessage = function(event){
+            _callback_on_message(event)
+
+        };
+
+        this.data_channel.onerror = function(){
+            console.log("error data channel")
+        };
+
+
+        this.connection.onicecandidate = function(evt){
+            if(!evt.candidate){
+                return;
+            }
+            console.log("onicecandidate called");
+
+            if(evt.candidate){
+                this.send_signal_message("candidate","candidate",evt.candidate)
+            }
+       };
+
+        this.connection.onaddstream = function(evt){
+            console.log("onaddstream called");
+        };
+    }
+
+    send_message(_msg){
+        this.remoteDataChannel.send(_msg);
+    }
+}

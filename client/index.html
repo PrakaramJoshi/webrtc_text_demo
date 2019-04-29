@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>WebRTC Text Demo</title>
+</head>
+<body>
+    <label >Session Id: </label>
+    <input id='session_id' value="1"> </input><br>
+    <label for='channel_id'>Channel ID
+        <input type='text' id='channel_id' value="1">
+        <button id="makeCall" type="button" >Connect</button>
+        <br>
+        <label >Connection Status: </label>
+        <label id='connection_status'> </label>        
+    </label>
+    <br>
+    <textarea id="remoteUser" rows="10" disabled ></textarea>
+    <textarea id="self" rows="10"></textarea>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script src='/js/app.js'></script>
+    <script src='/js/rtc_connection.js'></script>
+    <!-- <script src='/js/signaling.js'></script> -->
+</body>
+</html>
